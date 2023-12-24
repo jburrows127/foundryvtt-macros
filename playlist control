@@ -1,0 +1,109 @@
+/**
+* Foundry VTT Playlist Control Script
+ * 
+ * Description:
+ * This script is designed for Foundry Virtual Tabletop (VTT) to enhance the audio experience in your gaming sessions. It allows the Game Master and players to seamlessly control the background music and sound effects to match the mood and actions occurring within the game. The script offers a user-friendly interface for selecting and managing playlists, as well as controlling individual track playback and volume levels.
+ * 
+ * Features:
+ * - Dynamically select from a predefined list of playlists like 'Mood', 'Dungeon', 'Battle Music', etc.
+ * - Control the playback of tracks, including the ability to move to the next track.
+ * - Adjust the volume of the currently playing track, with options to increase or decrease the level.
+ * - A simple and intuitive dialog interface for easy interaction during the game.
+ * 
+ * How to Use:
+ * - The script provides a dialog box with buttons for each playlist and controls for next track and volume adjustment.
+ * - Clicking on a playlist button will start playing that playlist. Selecting 'None' will stop the current playback.
+ * - Use the 'Next Track' button to skip to the next track in the currently playing playlist.
+ * - The volume can be increased or decreased using the respective buttons.
+ * 
+ * Prerequisites:
+ * - Ensure that Foundry VTT is set up and running.
+ * - This script should be included as a module or directly in the Foundry VTT environment as per your setup.
+ * 
+ * Note:
+ * - This script is a utility for managing in-game audio and requires appropriate permissions and setup in Foundry VTT.
+ * - Modify and extend this script as needed to fit the specific needs of your game and campaign.
+ */
+
+let selectedPlaylistName = null; // Global variable to store the selected playlist
+
+let playlists = ["Mood", "Dungeon", "Ominous Foreshadowing", "Battle Music", "Dark Mood", "Suspense", "None"];
+let content = "<p>Select a Playlist:</p>";
+
+// Creating buttons for each playlist
+playlists.forEach(pl => {
+    content += `<button class="playlist-button" data-playlist="${pl}">${pl}</button>`;
+});
+
+// Add buttons for next track and volume control
+content += `<button class="track-button" data-action="next">Next Track</button>`;
+content += `<button class="volume-button" data-action="increase">Increase Volume</button>`;
+content += `<button class="volume-button" data-action="decrease">Decrease Volume</button>`;
+
+// Creating the dialog
+let d = new Dialog({
+    title: "Select Playlist",
+    content: content,
+    buttons: {},
+    render: html => {
+        html.find(".playlist-button").click(ev => {
+            let selectedPlaylist = ev.currentTarget.dataset.playlist;
+            handlePlaylistSelection(selectedPlaylist);
+        });
+        html.find(".track-button").click(ev => {
+            handleNextTrack();
+        });
+        html.find(".volume-button").click(ev => {
+            let action = ev.currentTarget.dataset.action;
+            handleVolumeChange(action);
+        });
+    }
+});
+
+d.render(true);
+
+function handlePlaylistSelection(playlistName) {
+    selectedPlaylistName = playlistName; // Store the selected playlist name
+    // Stop any currently playing playlist
+    let currentPlaylist = game.playlists.playing.find(pl => pl.playing);
+    if (currentPlaylist) {
+        currentPlaylist.stopAll();
+    }
+
+    // If "None" is selected, do nothing further
+    if (playlistName === "None") return;
+
+    // Find and play the selected playlist
+    let playlistToPlay = game.playlists.getName(playlistName);
+    if (playlistToPlay) {
+        playlistToPlay.playAll();
+    }
+}
+
+function handleNextTrack() {
+    let currentPlaylist = game.playlists.playing.find(pl => pl.playing);
+    if (currentPlaylist) {
+        currentPlaylist.playNext();
+    }
+}
+
+async function handleVolumeChange(action) {
+    if (!selectedPlaylistName) return; // Exit if no playlist is selected
+
+    const playlist = game.playlists.getName(selectedPlaylistName);
+    if (!playlist) return; // Exit if the playlist is not found
+
+    // Assuming you want to adjust the volume of the first sound in the playlist
+    const sound = playlist.sounds.contents[0]; 
+    if (!sound) return; // Exit if no sound is found
+
+    let newVolume = sound.volume; // Updated line to directly access volume
+    if (action === "increase") {
+        newVolume = Math.min(newVolume + 0.1, 1);
+    } else if (action === "decrease") {
+        newVolume = Math.max(newVolume - 0.1, 0);
+    }
+
+    await sound.update({ volume: newVolume });
+    // Optional: play the sound or handle it as per your requirement
+}
