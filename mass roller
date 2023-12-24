@@ -1,0 +1,94 @@
+/**
+ * Foundry VTT Saving Throw and Damage Application Script
+ * 
+ * Description:
+ * This script is designed for Foundry Virtual Tabletop (VTT) to facilitate the application of saving throws and damage to tokens in the game. It provides a streamlined way for the Game Master (GM) to manage saving throws and damage application during combat or other scenarios requiring such rolls.
+ * 
+ * Features:
+ * - Interactive dialog interface for inputting the Difficulty Class (DC), type of saving throw, and damage.
+ * - Supports all primary attribute types for saving throws: Strength, Dexterity, Constitution, Intelligence, Wisdom, and Charisma.
+ * - Option to apply half damage on a successful saving throw.
+ * - Automatically calculates and applies the resulting damage to each selected token based on their saving throw roll and the inputted damage.
+ * - Visual feedback in the chat for each token's saving throw outcome and damage taken.
+ * 
+ * How to Use:
+ * - Run the script to display the dialog.
+ * - Enter the required DC, select the save type, and input the damage.
+ * - Optionally, select 'Half Damage on Success' if the situation warrants it.
+ * - Click 'Apply' to process the saving throws and apply damage to all selected tokens.
+ * - The results of each saving throw and the damage applied will be displayed in the chat.
+ * 
+ * Note:
+ * - Ensure that the selected tokens have linked actor data and appropriate attributes for saving throws.
+ * - This script is intended to streamline and automate part of the combat process in Foundry VTT.
+ */
+
+// Function to show the dialog and process the input
+function showSaveDialog() {
+    new Dialog({
+        title: "Saving Throw and Damage Application",
+        content: `
+            <form>
+                <div class="form-group">
+                    <label for="dc">DC:</label>
+                    <input type="text" id="dc" name="dc" placeholder="Enter DC">
+                </div>
+                <div class="form-group">
+                    <label for="saveType">Save Type:</label>
+                    <select id="saveType" name="saveType">
+                        <option value="str">Strength</option>
+                        <option value="dex">Dexterity</option>
+                        <option value="con">Constitution</option>
+                        <option value="int">Intelligence</option>
+                        <option value="wis">Wisdom</option>
+                        <option value="cha">Charisma</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="damage">Damage:</label>
+                    <input type="text" id="damage" name="damage" placeholder="Enter damage">
+                </div>
+                <div class="form-group">
+                    <label for="halfDamage">Half Damage on Success:</label>
+                    <input type="checkbox" id="halfDamage" name="halfDamage">
+                </div>
+            </form>`,
+        buttons: {
+            ok: {
+                label: "Apply",
+                callback: html => applySave(html)
+            },
+            cancel: {
+                label: "Cancel"
+            }
+        },
+        default: "ok",
+        close: () => {}
+    }).render(true);
+}
+
+// Function to apply the DC, save type, and damage to each selected token
+async function applySave(html) {
+    const dc = Number(html.find('[name=dc]').val());
+    const saveType = html.find('[name=saveType]').val();
+    const damage = Number(html.find('[name=damage]').val());
+    const halfDamageOnSuccess = html.find('[name=halfDamage]').is(':checked');
+
+    for (let token of canvas.tokens.controlled) {
+        if (!token.actor) continue; // Skip if no linked actor
+
+        let saveMod = token.actor.system.abilities[saveType].mod;
+        let roll = await new Roll(`1d20 + ${saveMod}`).roll({async: true});
+        let success = roll.total >= dc;
+        let actualDamage = success ? (halfDamageOnSuccess ? Math.floor(damage / 2) : 0) : damage;
+
+        await token.actor.update({"system.attributes.hp.value": Math.max(token.actor.system.attributes.hp.value - actualDamage, 0)});
+        roll.toMessage({
+            speaker: ChatMessage.getSpeaker({ actor: token.actor }),
+            flavor: `<strong>${token.name}</strong> rolls a ${saveType.toUpperCase()} saving throw! DC was ${dc}. <strong style='color: ${success ? "green" : "red"};'>${success ? "Success" : "Failure"}</strong> Damage taken: ${actualDamage}`
+        });
+    }
+}
+
+// Run the dialog
+showSaveDialog();
