@@ -1,0 +1,41 @@
+// This macro teleports the selected token(s), or if none are selected, all player character tokens 
+// to the center of the grid square under the mouse position instantly, without considering scene padding
+
+// Check if there are any dialogues open
+const isDialogueOpen = Object.values(ui.windows).some(window => window instanceof Dialog && window._state === Application.RENDER_STATES.RENDERED);
+
+if (isDialogueOpen) {
+    console.log("Dialogue is open, aborting teleportation.");
+    return; // Exit the script if a dialogue is open
+}
+
+// Get the current mouse position using canvas.mousePosition
+let mousePosition = canvas.mousePosition;
+
+// Calculate the grid square size
+let gridSize = canvas.grid.size;
+
+// Calculate the top-left corner of the grid square
+let gridX = Math.floor(mousePosition.x / gridSize) * gridSize;
+let gridY = Math.floor(mousePosition.y / gridSize) * gridSize;
+
+// Calculate the center of the grid square
+let centerX = gridX + gridSize / 2;
+let centerY = gridY + gridSize / 2;
+
+// Decide whether to teleport selected tokens or all player tokens
+let tokens = canvas.tokens.controlled.length > 0 ? canvas.tokens.controlled : canvas.tokens.placeables.filter(t => t.actor && t.actor.hasPlayerOwner);
+
+// Prepare updates with animation disabled
+let updates = tokens.map(token => {
+    return {
+        _id: token.id,
+        x: centerX - token.w / 2,
+        y: centerY - token.h / 2
+    };
+});
+
+// Update tokens in a batch without animation
+if (updates.length > 0) {
+    canvas.scene.updateEmbeddedDocuments("Token", updates, {animate: false});
+}
