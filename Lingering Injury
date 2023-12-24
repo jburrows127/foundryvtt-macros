@@ -1,0 +1,90 @@
+/**
+ * Macro: ZeroHPTrigger Control with Stacking
+ * 
+ * Description:
+ * This script creates a hook in Foundry VTT that triggers when any actor's HP drops to 0.
+ * It rolls on a specified table named "Injury Table" and applies a "Lingering Injury" effect
+ * from DFreds Convenient Effects to the corresponding token. This effect stacks each time
+ * the token's HP drops to 0.
+ * 
+ * Prerequisites:
+ * 1. DFreds Convenient Effects module installed and enabled.
+ * 2. A rollable table named "Injury Table" in your game with desired effects as entries.
+ * 3. Tokens must have an associated actor with HP attribute in the correct data structure.
+ * 
+ * Setup:
+ * 1. Copy and paste this script into a new macro in Foundry VTT.
+ * 2. Ensure that the "Injury Table" exists and is correctly named in your game.
+ * 3. Run the macro to activate or deactivate the hook as needed.
+ * 
+ * Usage:
+ * - Click "Activate" in the pop-up dialog to start monitoring tokens' HP.
+ * - When a token's HP reaches 0, it will automatically apply the "Lingering Injury" effect
+ *   based on the roll from "Injury Table".
+ * - Click "Deactivate" in the pop-up dialog to stop the monitoring.
+ * 
+ * Notes:
+ * - The effect stacks if a token's HP reaches 0 multiple times.
+ * - The script can be easily modified for different tables or effects.
+ */
+
+let applyHook = () => {
+    if (window.ZeroHPTriggerHookId === undefined) {
+        window.ZeroHPTriggerHookId = Hooks.on("updateActor", async (actor, updateData) => {
+            if (updateData.data?.attributes?.hp?.value === 0) {
+                // Roll on the specified table
+                let tableName = "Injury Table";
+                let table = game.tables.getName(tableName);
+                if (!table) {
+                    ui.notifications.error(`Table "${tableName}" not found`);
+                    return;
+                }
+
+                // Draw from the table without displaying the roll
+                let draw = await table.draw({ displayChat: false });
+                let injuryResult = draw.results[0].getChatText();
+
+                // Apply "Lingering Injury" effect using DFreds Convenient Effects
+                let token = canvas.tokens.ownedTokens.find(t => t.actor.id === actor.id);
+                if (token) {
+                    const uuid = token.actor.uuid;
+                    await game.dfreds.effectInterface.addEffect({ effectName: "Lingering Injury", uuid });
+                    ChatMessage.create({ content: `${actor.name} has dropped to 0 HP and received a ${injuryResult}. 'Lingering Injury' effect applied.` });
+                }
+            }
+        });
+        ui.notifications.info("Zero HP Trigger Hook with stacking is now active.");
+    } else {
+        ui.notifications.warn("Zero HP Trigger Hook with stacking is already active.");
+    }
+};
+
+let removeHook = () => {
+    if (window.ZeroHPTriggerHookId !== undefined) {
+        Hooks.off("updateActor", window.ZeroHPTriggerHookId);
+        window.ZeroHPTriggerHookId = undefined;
+        ui.notifications.info("Zero HP Trigger Hook with stacking has been deactivated.");
+    } else {
+        ui.notifications.warn("No active Zero HP Trigger Hook with stacking found.");
+    }
+};
+
+// Display pop-up for user to select action
+let dialog = new Dialog({
+    title: "Zero HP Trigger Control",
+    content: "<p>Activate or deactivate the Zero HP Trigger with stacking.</p>",
+    buttons: {
+        on: {
+            icon: '<i class="fas fa-play"></i>',
+            label: "Activate",
+            callback: () => applyHook()
+        },
+        off: {
+            icon: '<i class="fas fa-stop"></i>',
+            label: "Deactivate",
+            callback: () => removeHook()
+        }
+    },
+    default: "off"
+});
+dialog.render(true);
