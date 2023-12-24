@@ -1,0 +1,152 @@
+/**
+ * Foundry VTT Token Enhancement Macro
+ * 
+ * Description:
+ * This macro is designed for Foundry VTT, aimed at dynamically enhancing selected tokens in various aspects. It's perfect for GMs who want to quickly adjust token attributes and statistics during the game, especially in scenarios like buffing NPCs or creating challenging encounters.
+ * 
+ * Features:
+ * - Increases Armor Class (AC) and top two ability scores of selected tokens.
+ * - Maximizes hit points (HP) and adjusts the HP formula if Constitution is increased.
+ * - Dynamically scales token size based on the new HP.
+ * - Enhances damage output by increasing the damage dice value by 50%.
+ * - Displays a notification upon completion of enhancements.
+ * 
+ * Usage:
+ * - Select the tokens you want to enhance.
+ * - Execute the macro to apply the enhancements.
+ * - The script will automatically adjust AC, ability scores, HP, damage, and size.
+ * - A notification confirms the successful enhancement of the tokens.
+ * 
+ * Note:
+ * - This macro is suitable for GMs looking to quickly modify NPCs or creatures for more challenging gameplay.
+ * - Ensure to use this macro responsibly, as it significantly alters token attributes.
+ */
+
+(async () => {
+    if (canvas.tokens.controlled.length === 0) {
+        return ui.notifications.warn("No tokens selected!");
+    }
+
+    const increaseDiceValue = (diceSize) => {
+        return Math.ceil(diceSize * 1.5);
+    };
+
+    const calculateAverageHP = (hitPointFormula) => {
+        const diceRegex = /(\d+)d(\d+)([+\-]\d+)?/;
+        const match = hitPointFormula.match(diceRegex);
+        if (match) {
+            const [, numDice, dieType, modifier] = match.map(Number);
+            const averageDieValue = (dieType + 1) / 2;
+            return numDice * averageDieValue + (modifier || 0);
+        }
+        return 0;
+    };
+
+    // Function to update token scale
+const updateTokenScale = async (token, currentHP, averageHP) => {
+    try {
+        let currentScale = token.document.texture.scaleX || 1;
+        console.log(`Using currentScale: ${currentScale}`);
+
+        let hpRatio = currentHP / averageHP;
+        console.log(`Current HP: ${currentHP}, Average HP: ${averageHP}, HP Ratio: ${hpRatio}`);
+
+        let scaleChange;
+        if (hpRatio >= 1) {
+            scaleChange = currentScale * Math.min(0.33, hpRatio - 1);
+        } else {
+            scaleChange = currentScale * (hpRatio - 1);
+        }
+
+        console.log(`Scale Change: ${scaleChange}`);
+
+        let newScale = currentScale + scaleChange;
+        newScale = Math.max(newScale, currentScale - currentScale * 0.33);
+        newScale = Math.round(newScale * 10) / 10;
+
+        console.log(`Calculated new scale: ${newScale}`);
+
+        if (!isFinite(newScale)) {
+            throw new Error(`Invalid scale value: ${newScale}`);
+        }
+
+        await token.document.update({ "texture.scaleX": newScale, "texture.scaleY": newScale });
+        console.log(`Token scale updated to: ${newScale}`);
+    } catch (error) {
+        console.error('Error updating token scale:', error);
+    }
+};
+
+    for (const token of canvas.tokens.controlled) {
+        const actor = token.actor;
+        const abilities = actor.system.abilities;
+
+        // Sort stats in descending order and pick the top two
+        const sortedStats = Object.entries(abilities)
+            .sort(([, a], [, b]) => b.value - a.value)
+            .slice(0, 2);
+
+        let updates = {
+            "system.attributes.ac.value": actor.system.attributes.ac.value + 1
+        };
+
+        let conIncreased = false;
+        sortedStats.forEach(([stat]) => {
+            updates[`system.abilities.${stat}.value`] = abilities[stat].value + 2;
+            if (stat === 'con') {
+                conIncreased = true;
+            }
+        });
+
+        await actor.update(updates).catch(console.error);
+
+        // Modify HP formula if Constitution increased
+        let formula = actor.system.attributes.hp.formula;
+        if (conIncreased) {
+            const diceRegex = /(\d+)d(\d+)/g;
+            let match;
+            let bonusHP = 0;
+
+            while ((match = diceRegex.exec(formula)) !== null) {
+                bonusHP += parseInt(match[1], 10); // Add number of dice to bonus HP
+            }
+
+            formula += ` + ${bonusHP}`;
+        }
+
+        const roll = await new Roll(formula).roll({ maximize: true });
+        const maximizedHP = roll.total;
+
+        await actor.update({ "system.attributes.hp.value": maximizedHP, "system.attributes.hp.max": maximizedHP });
+
+        let averageHP = calculateAverageHP(formula);
+        updateTokenScale(token, maximizedHP, averageHP);
+
+// Increase damage dice value by 50% while retaining bonuses
+        for (const item of actor.items) {
+            if (["spell", "feat", "weapon"].includes(item.type)) {
+                const damageParts = item.system.damage.parts;
+
+                for (const part of damageParts) {
+                    const damageExpr = part[0];
+                    const match = damageExpr.match(/(\d+)d(\d+)([\+\-]\d+)?/);
+
+                    if (match) {
+                        const [_, numDice, diceSize, bonus] = match;
+                        const newDiceSize = increaseDiceValue(Number(diceSize));
+                        const newDamageExpr = `${numDice}d${newDiceSize}${bonus || ''}+@mod`;
+                        part[0] = newDamageExpr; // Update the damage expression
+                    }
+                }
+
+                // Update the item with new damage expression
+                await item.update({ "system.damage.parts": damageParts }).catch(console.error);
+            }
+        }
+
+        // Apply updates to actor
+        await actor.update(updates).catch(console.error);
+    }
+
+    ui.notifications.info("Tokens enhanced: HP maximized, AC and top stats increased, damage improved, and size adjusted.");
+})();
