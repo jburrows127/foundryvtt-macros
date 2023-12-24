@@ -1,0 +1,166 @@
+/**
+ * Foundry VTT Token Management Script
+ * 
+ * Features:
+ * - Reset, maximize, or reroll HP for selected tokens.
+ * - Reset all effects or remove specific negative conditions.
+ * - Automatically reset spell slots for tokens.
+ * - Adjust token scale based on current vs. average HP.
+ * - User-friendly interface with a dialog for easy management.
+ * 
+ * Compatible with Foundry VTT Version 10 and later.
+ */
+
+(async () => {
+    if (canvas.tokens.controlled.length === 0) {
+        return ui.notifications.warn("No tokens selected!");
+    }
+
+const calculateAverageHP = (hitPointFormula) => {
+    const diceRegex = /(\d+)\s*d\s*(\d+)(?:\s*\+\s*(\d+))?/;
+    const match = hitPointFormula.match(diceRegex);
+
+    if (match) {
+        const [, numDice, dieType, modifier] = match.map(Number);
+        const averageDieValue = (dieType + 1) / 2;
+        const averageRoll = numDice * averageDieValue + (modifier || 0); // Use 0 if no modifier is present
+        return averageRoll;
+    } else {
+        return 0; // Return 0 if the formula doesn't match the expected pattern
+    }
+};
+
+    const getScaleForSize = (size) => {
+        switch (size.toLowerCase()) {
+            case 'tiny': return 0.5;
+            case 'small': return 0.8;
+            case 'medium': return 1;
+            case 'large': return 2;
+            case 'huge': return 3; // Adjust as needed
+            case 'gargantuan': return 4; // Adjust as needed
+            default: return 1; // Default to medium if size is unknown
+        }
+    };
+
+    const updateTokenScale = async (token, currentHP, averageHP) => {
+        try {
+            let currentScale = token.document.texture.scaleX || 1;
+            console.log(`Using currentScale: ${currentScale}`);
+
+            let hpRatio = currentHP / averageHP;
+            console.log(`Current HP: ${currentHP}, Average HP: ${averageHP}, HP Ratio: ${hpRatio}`);
+
+            let scaleChange;
+            if (hpRatio >= 1) {
+                scaleChange = currentScale * Math.min(0.33, hpRatio - 1);
+            } else {
+                scaleChange = currentScale * (hpRatio - 1);
+            }
+
+            console.log(`Scale Change: ${scaleChange}`);
+
+            let newScale = currentScale + scaleChange;
+            newScale = Math.max(newScale, currentScale - currentScale * 0.33);
+            newScale = Math.round(newScale * 10) / 10;
+
+            console.log(`Calculated new scale: ${newScale}`);
+
+            if (!isFinite(newScale)) {
+                throw new Error(`Invalid scale value: ${newScale}`);
+            }
+
+            await token.document.update({ "texture.scaleX": newScale, "texture.scaleY": newScale });
+            console.log(`Token scale updated to: ${newScale}`);
+        } catch (error) {
+            console.error('Error updating token scale:', error);
+        }
+    };
+
+    const removeNegativeConditions = async (token) => {
+        const negativeConditions = [
+            "Blinded", "Charmed", "Deafened", "Frightened", "Grappled", 
+            "Incapacitated", "Invisible", "Paralyzed", "Petrified", 
+            "Poisoned", "Prone", "Restrained", "Stunned", "Unconscious",
+            "Silenced", "Weakened", "Slowed", "Blind", "Deaf", "Asleep"
+        ];
+        const effectsToRemove = token.actor.effects.filter(e => negativeConditions.includes(e.name));
+        await token.actor.deleteEmbeddedDocuments("ActiveEffect", effectsToRemove.map(e => e.id));
+    };
+
+    const actions = {
+        resetHP: async (token) => token.actor.update({ "system.attributes.hp.value": token.actor.system.attributes.hp.max }),
+        resetEffects: async (token) => token.actor.deleteEmbeddedDocuments("ActiveEffect", token.actor.effects.map(e => e.id)),
+        maximize: async (token) => {
+            if (token.actor.type === "npc") {
+                const formula = token.actor.system.attributes.hp.formula;
+                if (formula) {
+                    const roll = await new Roll(formula).roll({ maximize: true });
+                    await token.actor.update({ "system.attributes.hp.value": roll.total, "system.attributes.hp.max": roll.total });
+                }
+            }
+        },
+        reroll: async (token) => {
+            if (token.actor.type === "npc") {
+                const formula = token.actor.system.attributes.hp.formula;
+                if (formula) {
+                    const roll = await new Roll(formula).roll();
+                    await token.actor.update({ "system.attributes.hp.value": roll.total, "system.attributes.hp.max": roll.total });
+                }
+            }
+        },
+        resetSpellSlots: async (token) => {
+            const updates = Object.fromEntries(Object.entries(token.actor.system.spells).filter(([_, slot]) => slot.value !== undefined).map(([key, slot]) => [`system.spells.${key}.value`, slot.max]));
+            await token.actor.update(updates);
+        },
+        adjustTokenScale: async (token) => {
+            const currentHP = token.actor.system.attributes.hp.value;
+            if (token.actor.system.attributes.hp.formula) {
+                const averageHP = calculateAverageHP(token.actor.system.attributes.hp.formula);
+
+                // Validate the HP values before scaling
+                if (typeof currentHP !== 'number' || typeof averageHP !== 'number' || averageHP === 0) {
+                    console.error(`Invalid HP values - Current HP: ${currentHP}, Average HP: ${averageHP}`);
+                    return; // Do not proceed if values are invalid
+                }
+
+                console.log(`Scaling Token - Current HP: ${currentHP}, Average HP: ${averageHP}`);
+                await updateTokenScale(token, currentHP, averageHP);
+            }
+        },
+        resetTokenScale: async (token) => {
+            const size = token.actor.data.data?.size || "medium"; // Adjust the path according to your system's character sheet structure
+            const defaultScale = getScaleForSize(size);
+
+            try {
+                await token.document.update({ "texture.scaleX": defaultScale, "texture.scaleY": defaultScale });
+                console.log(`Token scale reset to default for size ${size}: ${defaultScale}`);
+            } catch (error) {
+                console.error('Error resetting token scale:', error);
+            }
+        },
+        removeNegatives: async (token) => await removeNegativeConditions(token)
+    };
+
+new Dialog({
+    title: "Token Actions",
+    content: "<p>Select an action:</p>",
+    buttons: {
+        resetHP: { icon: '<i class="fas fa-heartbeat"></i>', label: "Reset HP", callback: () => canvas.tokens.controlled.forEach(actions.resetHP) },
+        resetEffects: { icon: '<i class="fas fa-broom"></i>', label: "Reset Effects", callback: () => canvas.tokens.controlled.forEach(actions.resetEffects) },
+        maximize: { icon: '<i class="fas fa-heart"></i>', label: "Maximize HP", callback: () => canvas.tokens.controlled.forEach(actions.maximize) },
+        reroll: { icon: '<i class="fas fa-dice"></i>', label: "Reroll HP", callback: () => canvas.tokens.controlled.forEach(actions.reroll) },
+        resetSpellSlots: { icon: '<i class="fas fa-magic"></i>', label: "Reset Spell Slots", callback: () => canvas.tokens.controlled.forEach(actions.resetSpellSlots) },
+        adjustScale: { icon: '<i class="fas fa-expand-arrows-alt"></i>', label: "Adjust Scale", callback: () => canvas.tokens.controlled.forEach(actions.adjustTokenScale) },
+        resetScale: { icon: '<i class="fas fa-compress-arrows-alt"></i>', label: "Reset Scale", callback: () => canvas.tokens.controlled.forEach(actions.resetTokenScale) },
+        removeNegatives: { icon: '<i class="fas fa-thumbs-up"></i>', label: "Remove Negatives", callback: () => canvas.tokens.controlled.forEach(actions.removeNegatives) }
+    },
+    default: "resetHP",
+    closeOnSubmit: false,
+    submitOnChange: true, // Add this line to submit when someone clicks on the items
+    submitOnClose: false, // Add this line to prevent submission when the dialog is closed
+    render: (html) => {
+        // This function will be called when rendering the dialog
+        // You can add additional behavior here if needed
+    }
+}).render(true);
+})();
