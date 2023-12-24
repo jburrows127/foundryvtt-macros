@@ -1,0 +1,80 @@
+/**
+ * Foundry VTT Token Display Customization Macro
+ * (Compatible with Foundry VTT v11, D&D 5e system)
+ * 
+ * Description:
+ * This macro provides a convenient user interface for adjusting the display names and bar visibility of selected tokens in Foundry VTT. It's ideal for GMs and players who wish to tailor the visibility of token information based on specific game needs.
+ * 
+ * Features:
+ * - Customizable options for display name modes: No Name, Name for Controller, Name for Owner, Name on Hover, Always Show Name.
+ * - Adjustable bar visibility modes: No Bars, Bars for Controller, Bars for Owner, Bars on Hover, Always Show Bars.
+ * - Easy-to-use dialog interface for quick settings adjustment.
+ * 
+ * Usage:
+ * - Select the tokens you want to customize.
+ * - Run the macro to open the dialog.
+ * - Choose your preferred settings for display names and bar visibility.
+ * - Click 'Apply' to update the selected tokens with the new settings.
+ * 
+ * Note:
+ * This macro is tailored for the D&D 5e system in Foundry VTT v11 but can be adapted for other systems or versions.
+ */
+
+// Macro for Foundry VTT v11 (D&D 5e system) to adjust display names and bar visibility for selected tokens with UI
+
+// Function to update tokens
+async function updateTokens(displayNameMode, barVisibilityMode) {
+    canvas.tokens.controlled.forEach(async token => {
+        // Prepare the update data for the display name and bar visibility
+        let updateData = {
+            "displayName": displayNameMode, // Set display name based on user selection
+            "displayBars": barVisibilityMode, // Set the bar visibility based on user selection
+            // If you need to set specific bars visibility, you can use the paths "bar1.visibility" and "bar2.visibility"
+        };
+
+        // Apply the update
+        await token.document.update(updateData);
+    });
+}
+
+// UI for selecting options
+let d = new Dialog({
+    title: "Token Display Settings",
+    content: `
+        <h2>Select Display Name Mode</h2>
+        <select id="name-mode">
+            <option value="${CONST.TOKEN_DISPLAY_MODES.NONE}">No Name</option>
+            <option value="${CONST.TOKEN_DISPLAY_MODES.CONTROL}">Name for Controller</option>
+            <option value="${CONST.TOKEN_DISPLAY_MODES.OWNER}">Name for Owner</option>
+            <option value="${CONST.TOKEN_DISPLAY_MODES.HOVER}">Name on Hover</option>
+            <option value="${CONST.TOKEN_DISPLAY_MODES.ALWAYS}">Always Show Name</option>
+        </select>
+        <h2>Select Bar Visibility Mode</h2>
+        <select id="bar-mode">
+            <option value="${CONST.TOKEN_DISPLAY_MODES.NONE}">No Bars</option>
+            <option value="${CONST.TOKEN_DISPLAY_MODES.CONTROL}">Bars for Controller</option>
+            <option value="${CONST.TOKEN_DISPLAY_MODES.OWNER}">Bars for Owner</option>
+            <option value="${CONST.TOKEN_DISPLAY_MODES.HOVER}">Bars on Hover</option>
+            <option value="${CONST.TOKEN_DISPLAY_MODES.ALWAYS}">Always Show Bars</option>
+        </select>
+    `,
+    buttons: {
+        ok: {
+            icon: "<i class='fas fa-check'></i>",
+            label: "Apply",
+            callback: (html) => {
+                const displayNameMode = html.find("#name-mode").val();
+                const barVisibilityMode = html.find("#bar-mode").val();
+                updateTokens(displayNameMode, barVisibilityMode);
+            }
+        },
+        cancel: {
+            icon: "<i class='fas fa-times'></i>",
+            label: "Cancel"
+        }
+    },
+    default: "cancel",
+    close: () => {}
+});
+
+d.render(true);
